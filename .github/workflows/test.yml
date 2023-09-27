@@ -8,7 +8,7 @@ on:
   pull_request:
   push:
     branches:
-      - 'v1.16'
+      - 'v1.16-mango'
   workflow_dispatch:
 
 env:
@@ -74,8 +74,6 @@ jobs:
         run: cargo check -p yellowstone-grpc-client-simple --all-targets --tests
       - name: check features in `geyser`
         run: cargo check -p yellowstone-grpc-geyser --all-targets --tests
-      - name: check features in `kafka`
-        run: cargo check -p yellowstone-grpc-kafka --all-targets --tests
       - name: check features in `proto`
         run: cargo check -p yellowstone-grpc-proto --all-targets --tests
 

@@ -184,6 +184,10 @@ struct ActionSubscribe {
     #[clap(long)]
     blocks_meta: bool,
 
+    /// Subscribe on Banking Transaction Results
+    #[clap(long)]
+    subscribe_banking_transaction_results: bool,
+
     // Resubscribe (only to slots) after
     #[clap(long)]
     resub: Option<usize>,
@@ -306,6 +310,8 @@ impl Action {
                         blocks_meta,
                         commitment: commitment.map(|x| x as i32),
                         accounts_data_slice,
+                        subscribe_banking_transaction_results: args
+                            .subscribe_banking_transaction_results,
                     },
                     args.resub.unwrap_or(0),
                 ))
@@ -562,6 +568,7 @@ async fn geyser_subscribe(
                     blocks_meta: HashMap::default(),
                     commitment: None,
                     accounts_data_slice: Vec::default(),
+                    subscribe_banking_transaction_results: false,
                 })
                 .await
                 .map_err(GeyserGrpcClientError::SubscribeSendError)?;

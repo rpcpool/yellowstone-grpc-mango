@@ -14,7 +14,7 @@ use {
         clock::{UnixTimestamp, MAX_RECENT_BLOCKHASHES},
         pubkey::Pubkey,
         signature::Signature,
-        transaction::SanitizedTransaction,
+        transaction::{SanitizedTransaction, TransactionError},
     },
     solana_transaction_status::{Reward, TransactionStatusMeta},
     std::{
@@ -48,7 +48,8 @@ use {
             GetLatestBlockhashRequest, GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse,
             GetVersionRequest, GetVersionResponse, IsBlockhashValidRequest,
             IsBlockhashValidResponse, PingRequest, PongResponse, SubscribeRequest, SubscribeUpdate,
-            SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateBlock,
+            SubscribeUpdateAccount, SubscribeUpdateAccountInfo,
+            SubscribeUpdateBankingTransactionResults, SubscribeUpdateBlock,
             SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdatePing,
             SubscribeUpdateSlot, SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
         },
@@ -299,6 +300,25 @@ impl<'a> From<&'a ReplicaBlockInfoV3<'a>> for MessageBlockMeta {
 }
 
 #[derive(Debug, Clone)]
+pub struct MessageBankingTransaction {
+    pub signature: Signature,
+    pub transaction_error: Option<TransactionError>,
+    pub slot: u64,
+}
+
+impl From<(Signature, Option<TransactionError>, u64)> for MessageBankingTransaction {
+    fn from(
+        (signature, transaction_error, slot): (Signature, Option<TransactionError>, u64),
+    ) -> Self {
+        Self {
+            signature,
+            transaction_error,
+            slot,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 #[allow(clippy::large_enum_variant)]
 pub enum Message {
     Slot(MessageSlot),
@@ -307,6 +327,7 @@ pub enum Message {
     Entry(MessageEntry),
     Block(MessageBlock),
     BlockMeta(MessageBlockMeta),
+    BankingTransactionResult(MessageBankingTransaction),
 }
 
 impl Message {
@@ -318,6 +339,7 @@ impl Message {
             Self::Entry(msg) => msg.slot,
             Self::Block(msg) => msg.slot,
             Self::BlockMeta(msg) => msg.slot,
+            Self::BankingTransactionResult(msg) => msg.slot,
         }
     }
 
@@ -329,6 +351,7 @@ impl Message {
             Self::Entry(_) => "Entry",
             Self::Block(_) => "Block",
             Self::BlockMeta(_) => "BlockMeta",
+            Self::BankingTransactionResult(_) => "BankingTransactionResult",
         }
     }
 }
@@ -393,6 +416,7 @@ pub enum MessageRef<'a> {
     Entry(&'a MessageEntry),
     Block(MessageBlockRef<'a>),
     BlockMeta(&'a MessageBlockMeta),
+    BankingStageTransactionResult(&'a MessageBankingTransaction),
 }
 
 impl<'a> MessageRef<'a> {
@@ -450,6 +474,17 @@ impl<'a> MessageRef<'a> {
                 parent_blockhash: message.parent_blockhash.clone(),
                 executed_transaction_count: message.executed_transaction_count,
             }),
+            Self::BankingStageTransactionResult(message) => {
+                UpdateOneof::BankingTransactionErrors(SubscribeUpdateBankingTransactionResults {
+                    slot: message.slot,
+                    signature: message.signature.to_string(),
+                    error: message.transaction_error.as_ref().map(|x| {
+                        yellowstone_grpc_proto::prelude::TransactionError {
+                            err: bincode::serialize(&x).unwrap(),
+                        }
+                    }),
+                })
+            }
         }
     }
 }
@@ -1174,6 +1209,7 @@ impl Geyser for GrpcService {
                 entry: HashMap::new(),
                 commitment: None,
                 accounts_data_slice: Vec::new(),
+                subscribe_banking_transaction_results: false,
             },
             &self.config.filters,
         )
