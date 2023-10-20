@@ -1,3 +1,5 @@
+use crate::grpc::BankingStageAccount;
+
 use {
     crate::{
         config::Config,
@@ -256,8 +258,18 @@ impl GeyserPlugin for Plugin {
         }
 
         self.with_inner(|inner| {
+            let tm = transaction.message();
+            let accounts = tm
+                .account_keys()
+                .iter()
+                .enumerate()
+                .map(|(index, x)| BankingStageAccount {
+                    account: *x,
+                    is_writable: tm.is_writable(index),
+                })
+                .collect();
             let message = Message::BankingTransactionResult(
-                (*transaction.signature(), transaction_error, slot).into(),
+                (*transaction.signature(), transaction_error, slot, accounts).into(),
             );
             inner.send_message(message);
             Ok(())

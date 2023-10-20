@@ -173,7 +173,14 @@ message SubscribeUpdateBankingTransactionResults {
   uint64 slot = 1;
   string signature = 2;
   optional solana.storage.ConfirmedBlock.TransactionError error = 3;
+  repeated BankingStageAccount accounts = 4;
 }
+
+message BankingStageAccount {
+  string account = 1;
+  bool is_writable = 2;
+}
+
 
 message SubscribeUpdatePing {}
 
