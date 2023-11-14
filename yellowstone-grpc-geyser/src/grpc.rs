@@ -1112,18 +1112,29 @@ impl GrpcService {
             info!("client #{id}: going to receive snapshot data");
 
             // we start with default filter, for snapshot we need wait actual filter first
-            match client_rx.recv().await {
-                Some(Some(filter_new)) => {
-                    filter = filter_new;
-                    info!("client #{id}: filter updated");
-                }
-                Some(None) => {
-                    is_alive = false;
-                }
-                None => {
-                    is_alive = false;
-                }
-            };
+            while is_alive {
+                match client_rx.recv().await {
+                    Some(Some(filter_new)) => {
+                        if let Some(msg) = filter_new.get_pong_msg() {
+                            if stream_tx.send(Ok(msg)).await.is_err() {
+                                error!("client #{id}: stream closed");
+                                is_alive = false;
+                                break;
+                            }
+                            continue;
+                        }
+
+                        filter = filter_new;
+                        info!("client #{id}: filter updated");
+                    }
+                    Some(None) => {
+                        is_alive = false;
+                    }
+                    None => {
+                        is_alive = false;
+                    }
+                };
+            }
 
             while is_alive {
                 let message = match snapshot_rx.try_recv() {
@@ -1145,7 +1156,7 @@ impl GrpcService {
                     }
                 };
 
-                for message in filter.get_update(&message) {
+                for message in filter.get_update(&message, None) {
                     if stream_tx.send(Ok(message)).await.is_err() {
                         error!("client #{id}: stream closed");
                         is_alive = false;
@@ -1161,6 +1172,14 @@ impl GrpcService {
                     message = client_rx.recv() => {
                         match message {
                             Some(Some(filter_new)) => {
+                                if let Some(msg) = filter_new.get_pong_msg() {
+                                    if stream_tx.send(Ok(msg)).await.is_err() {
+                                        error!("client #{id}: stream closed");
+                                        break 'outer;
+                                    }
+                                    continue;
+                                }
+
                                 filter = filter_new;
                                 info!("client #{id}: filter updated");
                             }
@@ -1189,7 +1208,7 @@ impl GrpcService {
 
                         if commitment == filter.get_commitment_level() {
                             for message in messages.iter() {
-                                for message in filter.get_update(message) {
+                                for message in filter.get_update(message, Some(commitment)) {
                                     match stream_tx.try_send(Ok(message)) {
                                         Ok(()) => {}
                                         Err(mpsc::error::TrySendError::Full(_)) => {
@@ -1226,7 +1245,7 @@ impl Geyser for GrpcService {
         &self,
         mut request: Request<Streaming<SubscribeRequest>>,
     ) -> TonicResult<Response<Self::SubscribeStream>> {
-        let id = self.subscribe_id.fetch_add(1, Ordering::SeqCst);
+        let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
         let filter = Filter::new(
             &SubscribeRequest {
                 accounts: HashMap::new(),
@@ -1238,6 +1257,7 @@ impl Geyser for GrpcService {
                 commitment: None,
                 accounts_data_slice: Vec::new(),
                 subscribe_banking_transaction_results: false,
+                ping: None,
             },
             &self.config.filters,
         )

@@ -12,26 +12,16 @@ use {
         SlotStatus,
     },
     solana_sdk::transaction::{SanitizedTransaction, TransactionError},
-    std::{
-        sync::{
-            atomic::{AtomicU8, Ordering},
-            Arc,
-        },
-        time::Duration,
-    },
+    std::{sync::Arc, time::Duration},
     tokio::{
         runtime::Runtime,
         sync::{mpsc, Notify},
     },
 };
 
-const STARTUP_END_OF_RECEIVED: u8 = 1 << 0;
-const STARTUP_PROCESSED_RECEIVED: u8 = 1 << 1;
-
 #[derive(Debug)]
 pub struct PluginInner {
     runtime: Runtime,
-    startup_status: AtomicU8,
     snapshot_channel: Option<crossbeam_channel::Sender<Option<Message>>>,
     grpc_channel: mpsc::UnboundedSender<Message>,
     grpc_shutdown: Arc<Notify>,
@@ -56,15 +46,8 @@ impl Plugin {
     where
         F: FnOnce(&PluginInner) -> PluginResult<()>,
     {
-        // Full block reconstruction will fail before first processed slot received
         let inner = self.inner.as_ref().expect("initialized");
-        if inner.startup_status.load(Ordering::SeqCst)
-            == STARTUP_END_OF_RECEIVED | STARTUP_PROCESSED_RECEIVED
-        {
-            f(inner)
-        } else {
-            Ok(())
-        }
+        f(inner)
     }
 }
 
@@ -100,7 +83,6 @@ impl GeyserPlugin for Plugin {
 
         self.inner = Some(PluginInner {
             runtime,
-            startup_status: AtomicU8::new(0),
             snapshot_channel,
             grpc_channel,
             grpc_shutdown,
@@ -125,49 +107,43 @@ impl GeyserPlugin for Plugin {
         slot: u64,
         is_startup: bool,
     ) -> PluginResult<()> {
-        let account = match account {
-            ReplicaAccountInfoVersions::V0_0_1(_info) => {
-                unreachable!("ReplicaAccountInfoVersions::V0_0_1 is not supported")
-            }
-            ReplicaAccountInfoVersions::V0_0_2(_info) => {
-                unreachable!("ReplicaAccountInfoVersions::V0_0_2 is not supported")
-            }
-            ReplicaAccountInfoVersions::V0_0_3(info) => info,
-        };
-        let message = Message::Account((account, slot, is_startup).into());
+        self.with_inner(|inner| {
+            let account = match account {
+                ReplicaAccountInfoVersions::V0_0_1(_info) => {
+                    unreachable!("ReplicaAccountInfoVersions::V0_0_1 is not supported")
+                }
+                ReplicaAccountInfoVersions::V0_0_2(_info) => {
+                    unreachable!("ReplicaAccountInfoVersions::V0_0_2 is not supported")
+                }
+                ReplicaAccountInfoVersions::V0_0_3(info) => info,
+            };
 
-        if is_startup {
-            let inner = self.inner.as_ref().expect("initialized");
+            let message = Message::Account((account, slot, is_startup).into());
+            if is_startup {
+                if let Some(channel) = &inner.snapshot_channel {
+                    match channel.send(Some(message)) {
+                        Ok(()) => MESSAGE_QUEUE_SIZE.inc(),
+                        Err(_) => panic!("failed to send message to startup queue: channel closed"),
+                    }
+                }
+            } else {
+                inner.send_message(message);
+            }
+
+            Ok(())
+        })
+    }
+
+    fn notify_end_of_startup(&self) -> PluginResult<()> {
+        self.with_inner(|inner| {
             if let Some(channel) = &inner.snapshot_channel {
-                match channel.send(Some(message)) {
+                match channel.send(None) {
                     Ok(()) => MESSAGE_QUEUE_SIZE.inc(),
                     Err(_) => panic!("failed to send message to startup queue: channel closed"),
                 }
             }
             Ok(())
-        } else {
-            self.with_inner(|inner| {
-                inner.send_message(message);
-                Ok(())
-            })
-        }
-    }
-
-    fn notify_end_of_startup(&self) -> PluginResult<()> {
-        let inner = self.inner.as_ref().expect("initialized");
-
-        if let Some(channel) = &inner.snapshot_channel {
-            match channel.send(None) {
-                Ok(()) => MESSAGE_QUEUE_SIZE.inc(),
-                Err(_) => panic!("failed to send message to startup queue: channel closed"),
-            }
-        }
-
-        inner
-            .startup_status
-            .fetch_or(STARTUP_END_OF_RECEIVED, Ordering::SeqCst);
-
-        Ok(())
+        })
     }
 
     fn update_slot_status(
@@ -176,20 +152,10 @@ impl GeyserPlugin for Plugin {
         parent: Option<u64>,
         status: SlotStatus,
     ) -> PluginResult<()> {
-        let inner = self.inner.as_ref().expect("initialized");
-        if inner.startup_status.load(Ordering::SeqCst) == STARTUP_END_OF_RECEIVED
-            && status == SlotStatus::Processed
-        {
-            inner
-                .startup_status
-                .fetch_or(STARTUP_PROCESSED_RECEIVED, Ordering::SeqCst);
-        }
-
         self.with_inner(|inner| {
             let message = Message::Slot((slot, parent, status).into());
             inner.send_message(message);
             prom::update_slot_status(status, slot);
-
             Ok(())
         })
     }

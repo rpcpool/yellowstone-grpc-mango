@@ -16,6 +16,38 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2023-11-01
+
+- @triton-one/yellowstone-grpc:0.3.0
+- yellowstone-grpc-client-1.12.0+solana.1.16.17
+- yellowstone-grpc-geyser-1.11.0+solana.1.16.17
+- yellowstone-grpc-proto-1.11.0+solana.1.16.17
+- yellowstone-grpc-tools-1.0.0-rc.6+solana.1.16.17
+
+### Fixes
+
+- geyser: trigger end of startup when parent slot 0 seen in `update_slot_status` notification because `notify_end_of_startup` is not triggered when cluster started from genesis ([#207](https://github.com/rpcpool/yellowstone-grpc/pull/207))
+- tools: correctly handle SIGINT in kafka ([#219](https://github.com/rpcpool/yellowstone-grpc/pull/219))
+
+### Features
+
+- proto: add optional field `filter_by_commitment` to Slots filter ([#223](https://github.com/rpcpool/yellowstone-grpc/pull/223))
+- geyser: use Ordering::Relaxed instead of SeqCst ([#221](https://github.com/rpcpool/yellowstone-grpc/pull/221))
+- proto: add optional field `ping` to `SubscribeRequest` ([#227](https://github.com/rpcpool/yellowstone-grpc/pull/227))
+- geyser: remove startup_status (allow reload plugin)  ([#230](https://github.com/rpcpool/yellowstone-grpc/pull/230))
+
+## 2023-10-19
+
+- yellowstone-grpc-tools-1.0.0-rc.5+solana.1.16.17
+
+### Features
+
+- tools: add Google Pub/Sub ([#211](https://github.com/rpcpool/yellowstone-grpc/pull/211)).
+
+### Breaking
+
+- kafka: rename to tools ([#203](https://github.com/rpcpool/yellowstone-grpc/pull/203)).
+
 ## 2023-10-14
 
 - yellowstone-grpc-client-1.11.1+solana.1.16.17

@@ -21,7 +21,8 @@ use {
             SubscribeRequestFilterAccountsFilter, SubscribeRequestFilterAccountsFilterMemcmp,
             SubscribeRequestFilterBlocks, SubscribeRequestFilterBlocksMeta,
             SubscribeRequestFilterEntry, SubscribeRequestFilterSlots,
-            SubscribeRequestFilterTransactions, SubscribeUpdateAccount, SubscribeUpdateTransaction,
+            SubscribeRequestFilterTransactions, SubscribeRequestPing, SubscribeUpdateAccount,
+            SubscribeUpdateTransaction,
         },
         tonic::service::Interceptor,
     },
@@ -129,6 +130,10 @@ struct ActionSubscribe {
     #[clap(long)]
     slots: bool,
 
+    /// Filter slots by commitment
+    #[clap(long)]
+    slots_filter_by_commitment: bool,
+
     /// Subscribe on transactions updates
     #[clap(long)]
     transactions: bool,
@@ -188,6 +193,10 @@ struct ActionSubscribe {
     #[clap(long)]
     subscribe_banking_transaction_results: bool,
 
+    /// Send ping in subscribe request
+    #[clap(long)]
+    ping: Option<i32>,
+
     // Resubscribe (only to slots) after
     #[clap(long)]
     resub: Option<usize>,
@@ -245,7 +254,12 @@ impl Action {
 
                 let mut slots: SlotsFilterMap = HashMap::new();
                 if args.slots {
-                    slots.insert("client".to_owned(), SubscribeRequestFilterSlots {});
+                    slots.insert(
+                        "client".to_owned(),
+                        SubscribeRequestFilterSlots {
+                            filter_by_commitment: Some(args.slots_filter_by_commitment),
+                        },
+                    );
                 }
 
                 let mut transactions: TransactionsFilterMap = HashMap::new();
@@ -300,6 +314,8 @@ impl Action {
                     }
                 }
 
+                let ping = args.ping.map(|id| SubscribeRequestPing { id });
+
                 Some((
                     SubscribeRequest {
                         slots,
@@ -312,6 +328,7 @@ impl Action {
                         accounts_data_slice,
                         subscribe_banking_transaction_results: args
                             .subscribe_banking_transaction_results,
+                        ping,
                     },
                     args.resub.unwrap_or(0),
                 ))
@@ -556,7 +573,7 @@ async fn geyser_subscribe(
         counter += 1;
         if counter == resub {
             let mut new_slots: SlotsFilterMap = HashMap::new();
-            new_slots.insert("client".to_owned(), SubscribeRequestFilterSlots {});
+            new_slots.insert("client".to_owned(), SubscribeRequestFilterSlots::default());
 
             subscribe_tx
                 .send(SubscribeRequest {
@@ -569,6 +586,7 @@ async fn geyser_subscribe(
                     commitment: None,
                     accounts_data_slice: Vec::default(),
                     subscribe_banking_transaction_results: false,
+                    ping: None,
                 })
                 .await
                 .map_err(GeyserGrpcClientError::SubscribeSendError)?;

@@ -21,11 +21,11 @@ use {
     yellowstone_grpc_proto::prelude::{
         subscribe_request_filter_accounts_filter::Filter as AccountsFilterDataOneof,
         subscribe_request_filter_accounts_filter_memcmp::Data as AccountsFilterMemcmpOneof,
-        CommitmentLevel, SubscribeRequest, SubscribeRequestAccountsDataSlice,
-        SubscribeRequestFilterAccounts, SubscribeRequestFilterAccountsFilter,
-        SubscribeRequestFilterBlocks, SubscribeRequestFilterBlocksMeta,
-        SubscribeRequestFilterEntry, SubscribeRequestFilterSlots,
-        SubscribeRequestFilterTransactions, SubscribeUpdate,
+        subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest,
+        SubscribeRequestAccountsDataSlice, SubscribeRequestFilterAccounts,
+        SubscribeRequestFilterAccountsFilter, SubscribeRequestFilterBlocks,
+        SubscribeRequestFilterBlocksMeta, SubscribeRequestFilterEntry, SubscribeRequestFilterSlots,
+        SubscribeRequestFilterTransactions, SubscribeUpdate, SubscribeUpdatePong,
     },
 };
 
@@ -40,6 +40,7 @@ pub struct Filter {
     commitment: CommitmentLevel,
     accounts_data_slice: Vec<FilterAccountsDataSlice>,
     banking_transaction_error: FilterBankingTransactionResults,
+    ping: Option<i32>,
 }
 
 impl Filter {
@@ -56,6 +57,7 @@ impl Filter {
             banking_transaction_error: FilterBankingTransactionResults::new(
                 config.subscribe_banking_transaction_results,
             )?,
+            ping: config.ping.as_ref().map(|msg| msg.id),
         })
     }
 
@@ -86,10 +88,14 @@ impl Filter {
         self.commitment
     }
 
-    pub fn get_filters<'a>(&self, message: &'a Message) -> Vec<(Vec<String>, MessageRef<'a>)> {
+    pub fn get_filters<'a>(
+        &self,
+        message: &'a Message,
+        commitment: Option<CommitmentLevel>,
+    ) -> Vec<(Vec<String>, MessageRef<'a>)> {
         match message {
             Message::Account(message) => self.accounts.get_filters(message),
-            Message::Slot(message) => self.slots.get_filters(message),
+            Message::Slot(message) => self.slots.get_filters(message, commitment),
             Message::Transaction(message) => self.transactions.get_filters(message),
             Message::Entry(message) => self.entry.get_filters(message),
             Message::Block(message) => self.blocks.get_filters(message),
@@ -100,8 +106,12 @@ impl Filter {
         }
     }
 
-    pub fn get_update(&self, message: &Message) -> Vec<SubscribeUpdate> {
-        self.get_filters(message)
+    pub fn get_update(
+        &self,
+        message: &Message,
+        commitment: Option<CommitmentLevel>,
+    ) -> Vec<SubscribeUpdate> {
+        self.get_filters(message, commitment)
             .into_iter()
             .filter_map(|(filters, message)| {
                 if filters.is_empty() {
@@ -114,6 +124,13 @@ impl Filter {
                 }
             })
             .collect()
+    }
+
+    pub fn get_pong_msg(&self) -> Option<SubscribeUpdate> {
+        self.ping.map(|id| SubscribeUpdate {
+            filters: vec![],
+            update_oneof: Some(UpdateOneof::Pong(SubscribeUpdatePong { id })),
+        })
     }
 }
 
@@ -368,9 +385,22 @@ impl<'a> FilterAccountsMatch<'a> {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+struct FilterSlotsInner {
+    filter_by_commitment: bool,
+}
+
+impl FilterSlotsInner {
+    fn new(filter: &SubscribeRequestFilterSlots) -> Self {
+        Self {
+            filter_by_commitment: filter.filter_by_commitment.unwrap_or_default(),
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 struct FilterSlots {
-    filters: Vec<String>,
+    filters: HashMap<String, FilterSlotsInner>,
 }
 
 impl FilterSlots {
@@ -383,14 +413,29 @@ impl FilterSlots {
         Ok(Self {
             filters: configs
                 .iter()
-                // .filter_map(|(name, _filter)| Some(name.clone()))
-                .map(|(name, _filter)| name.clone())
+                .map(|(name, filter)| (name.clone(), FilterSlotsInner::new(filter)))
                 .collect(),
         })
     }
 
-    fn get_filters<'a>(&self, message: &'a MessageSlot) -> Vec<(Vec<String>, MessageRef<'a>)> {
-        vec![(self.filters.clone(), MessageRef::Slot(message))]
+    fn get_filters<'a>(
+        &self,
+        message: &'a MessageSlot,
+        commitment: Option<CommitmentLevel>,
+    ) -> Vec<(Vec<String>, MessageRef<'a>)> {
+        vec![(
+            self.filters
+                .iter()
+                .filter_map(|(name, inner)| {
+                    if !inner.filter_by_commitment || commitment == Some(message.status) {
+                        Some(name.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+            MessageRef::Slot(message),
+        )]
     }
 }
 
@@ -833,6 +878,7 @@ mod tests {
             commitment: None,
             accounts_data_slice: Vec::new(),
             subscribe_banking_transaction_results: false,
+            ping: None,
         };
         let limit = ConfigGrpcFilters::default();
         let filter = Filter::new(&config, &limit);
@@ -862,6 +908,7 @@ mod tests {
             commitment: None,
             accounts_data_slice: Vec::new(),
             subscribe_banking_transaction_results: false,
+            ping: None,
         };
         let mut limit = ConfigGrpcFilters::default();
         limit.accounts.any = false;
@@ -896,6 +943,7 @@ mod tests {
             commitment: None,
             accounts_data_slice: Vec::new(),
             subscribe_banking_transaction_results: false,
+            ping: None,
         };
         let mut limit = ConfigGrpcFilters::default();
         limit.transactions.any = false;
@@ -929,6 +977,7 @@ mod tests {
             commitment: None,
             accounts_data_slice: Vec::new(),
             subscribe_banking_transaction_results: false,
+            ping: None,
         };
         let mut limit = ConfigGrpcFilters::default();
         limit.transactions.any = false;
@@ -968,6 +1017,7 @@ mod tests {
             commitment: None,
             accounts_data_slice: Vec::new(),
             subscribe_banking_transaction_results: false,
+            ping: None,
         };
         let limit = ConfigGrpcFilters::default();
         let filter = Filter::new(&config, &limit).unwrap();
@@ -975,7 +1025,7 @@ mod tests {
         let message_transaction =
             create_message_transaction(&keypair_b, vec![account_key_b, account_key_a]);
         let message = Message::Transaction(message_transaction);
-        for (filters, _message) in filter.get_filters(&message) {
+        for (filters, _message) in filter.get_filters(&message, None) {
             assert!(!filters.is_empty());
         }
     }
@@ -1011,6 +1061,7 @@ mod tests {
             commitment: None,
             accounts_data_slice: Vec::new(),
             subscribe_banking_transaction_results: false,
+            ping: None,
         };
         let limit = ConfigGrpcFilters::default();
         let filter = Filter::new(&config, &limit).unwrap();
@@ -1018,7 +1069,7 @@ mod tests {
         let message_transaction =
             create_message_transaction(&keypair_b, vec![account_key_b, account_key_a]);
         let message = Message::Transaction(message_transaction);
-        for (filters, _message) in filter.get_filters(&message) {
+        for (filters, _message) in filter.get_filters(&message, None) {
             assert!(!filters.is_empty());
         }
     }
@@ -1054,6 +1105,7 @@ mod tests {
             commitment: None,
             accounts_data_slice: Vec::new(),
             subscribe_banking_transaction_results: false,
+            ping: None,
         };
         let limit = ConfigGrpcFilters::default();
         let filter = Filter::new(&config, &limit).unwrap();
@@ -1061,7 +1113,7 @@ mod tests {
         let message_transaction =
             create_message_transaction(&keypair_b, vec![account_key_b, account_key_a]);
         let message = Message::Transaction(message_transaction);
-        for (filters, _message) in filter.get_filters(&message) {
+        for (filters, _message) in filter.get_filters(&message, None) {
             assert!(filters.is_empty());
         }
     }
@@ -1103,6 +1155,7 @@ mod tests {
             commitment: None,
             accounts_data_slice: Vec::new(),
             subscribe_banking_transaction_results: false,
+            ping: None,
         };
         let limit = ConfigGrpcFilters::default();
         let filter = Filter::new(&config, &limit).unwrap();
@@ -1112,7 +1165,7 @@ mod tests {
             vec![account_key_x, account_key_y, account_key_z],
         );
         let message = Message::Transaction(message_transaction);
-        for (filters, _message) in filter.get_filters(&message) {
+        for (filters, _message) in filter.get_filters(&message, None) {
             assert!(!filters.is_empty());
         }
     }
@@ -1154,6 +1207,7 @@ mod tests {
             commitment: None,
             accounts_data_slice: Vec::new(),
             subscribe_banking_transaction_results: false,
+            ping: None,
         };
         let limit = ConfigGrpcFilters::default();
         let filter = Filter::new(&config, &limit).unwrap();
@@ -1161,7 +1215,7 @@ mod tests {
         let message_transaction =
             create_message_transaction(&keypair_x, vec![account_key_x, account_key_z]);
         let message = Message::Transaction(message_transaction);
-        for (filters, _message) in filter.get_filters(&message) {
+        for (filters, _message) in filter.get_filters(&message, None) {
             assert!(filters.is_empty());
         }
     }

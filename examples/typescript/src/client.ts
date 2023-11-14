@@ -92,6 +92,7 @@ async function subscribeCommand(client, args) {
     blocks: {},
     blocksMeta: {},
     accountsDataSlice: [],
+    ping: undefined,
   };
   if (args.accounts) {
     const filters: SubscribeRequestFilterAccountsFilter[] = [];
@@ -128,7 +129,9 @@ async function subscribeCommand(client, args) {
   }
 
   if (args.slots) {
-    request.slots.client = {};
+    request.slots.client = {
+      filterByCommitment: args.slotsFilterByCommitment,
+    };
   }
 
   if (args.transactions) {
@@ -174,6 +177,10 @@ async function subscribeCommand(client, args) {
         length,
       });
     }
+  }
+
+  if (args.ping) {
+    request.ping = { id: args.ping };
   }
 
   // Send subscribe request
@@ -272,6 +279,11 @@ function parseCommandLineArgs() {
           describe: "subscribe on slots updates",
           type: "boolean",
         },
+        "slots-filter-by-commitment": {
+          default: false,
+          describe: "filter slot messages by commitment",
+          type: "boolean",
+        },
         transactions: {
           default: false,
           describe: "subscribe on transactions updates",
@@ -339,6 +351,11 @@ function parseCommandLineArgs() {
           description: "subscribe on block meta updates (without transactions)",
           type: "boolean",
         },
+        ping: {
+          default: undefined,
+          description: "send ping request in subscribe",
+          type: "number"
+        }
       });
     })
     .demandCommand(1)

@@ -32,6 +32,7 @@ message SubscribeRequest {
   optional CommitmentLevel commitment = 6;
   repeated SubscribeRequestAccountsDataSlice accounts_data_slice = 7;
   bool subscribe_banking_transaction_results = 9;
+  optional SubscribeRequestPing ping = 10;
 }
 
 message SubscribeRequestFilterAccounts {
@@ -57,7 +58,9 @@ message SubscribeRequestFilterAccountsFilterMemcmp {
   }
 }
 
-message SubscribeRequestFilterSlots {}
+message SubscribeRequestFilterSlots {
+  optional bool filter_by_commitment = 1;
+}
 
 message SubscribeRequestFilterTransactions {
   optional bool vote = 1;
@@ -84,6 +87,10 @@ message SubscribeRequestAccountsDataSlice {
   uint64 length = 2;
 }
 
+message SubscribeRequestPing {
+  int32 id = 1;
+}
+
 message SubscribeUpdate {
   repeated string filters = 1;
   oneof update_oneof {
@@ -92,6 +99,7 @@ message SubscribeUpdate {
     SubscribeUpdateTransaction transaction = 4;
     SubscribeUpdateBlock block = 5;
     SubscribeUpdatePing ping = 6;
+    SubscribeUpdatePong pong = 10;
     SubscribeUpdateBlockMeta block_meta = 7;
     SubscribeUpdateEntry entry = 8;
     SubscribeUpdateBankingTransactionResults banking_transaction_errors = 9;
@@ -183,6 +191,10 @@ message BankingStageAccount {
 
 
 message SubscribeUpdatePing {}
+
+message SubscribeUpdatePong {
+  int32 id = 1;
+}
 
 // non-streaming methods
 
