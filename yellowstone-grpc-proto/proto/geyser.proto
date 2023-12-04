@@ -31,7 +31,8 @@ message SubscribeRequest {
   map<string, SubscribeRequestFilterEntry> entry = 8;
   optional CommitmentLevel commitment = 6;
   repeated SubscribeRequestAccountsDataSlice accounts_data_slice = 7;
-  optional SubscribeRequestPing ping = 9;
+  bool subscribe_banking_transaction_results = 9;
+  optional SubscribeRequestPing ping = 10;
 }
 
 message SubscribeRequestFilterAccounts {
@@ -98,9 +99,10 @@ message SubscribeUpdate {
     SubscribeUpdateTransaction transaction = 4;
     SubscribeUpdateBlock block = 5;
     SubscribeUpdatePing ping = 6;
-    SubscribeUpdatePong pong = 9;
+    SubscribeUpdatePong pong = 10;
     SubscribeUpdateBlockMeta block_meta = 7;
     SubscribeUpdateEntry entry = 8;
+    SubscribeUpdateBankingTransactionResults banking_transaction_errors = 9;
   }
 }
 
@@ -176,6 +178,19 @@ message SubscribeUpdateEntry {
   uint64 executed_transaction_count = 5;
   uint64 starting_transaction_index = 6; // added in v1.18, for solana 1.17 value is always 0
 }
+
+message SubscribeUpdateBankingTransactionResults {
+  uint64 slot = 1;
+  string signature = 2;
+  optional solana.storage.ConfirmedBlock.TransactionError error = 3;
+  repeated BankingStageAccount accounts = 4;
+}
+
+message BankingStageAccount {
+  string account = 1;
+  bool is_writable = 2;
+}
+
 
 message SubscribeUpdatePing {}
 

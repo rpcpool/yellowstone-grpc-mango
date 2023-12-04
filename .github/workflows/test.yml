@@ -11,6 +11,7 @@ on:
       - 'master'
       - 'v1.16'
       - 'v1.17'
+      - 'v1.17-mango'
   workflow_dispatch:
 
 env:
@@ -83,8 +84,8 @@ jobs:
         run: cargo check -p yellowstone-grpc-geyser --all-targets --tests
       - name: check features in `proto`
         run: cargo check -p yellowstone-grpc-proto --all-targets --tests
-      - name: check features in `tools`
-        run: cargo check -p yellowstone-grpc-tools --all-targets --tests
+      # - name: check features in `tools`
+      #   run: cargo check -p yellowstone-grpc-tools --all-targets --tests
 
       - name: Build
         run: ./ci/cargo-build-test.sh

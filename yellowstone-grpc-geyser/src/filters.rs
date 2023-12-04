@@ -6,8 +6,8 @@ use {
             ConfigGrpcFiltersTransactions,
         },
         grpc::{
-            Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry, MessageRef,
-            MessageSlot, MessageTransaction,
+            Message, MessageAccount, MessageBankingTransaction, MessageBlock, MessageBlockMeta,
+            MessageEntry, MessageRef, MessageSlot, MessageTransaction,
         },
     },
     base64::{engine::general_purpose::STANDARD as base64_engine, Engine},
@@ -38,6 +38,7 @@ pub struct Filter {
     blocks_meta: FilterBlocksMeta,
     commitment: CommitmentLevel,
     accounts_data_slice: Vec<FilterAccountsDataSlice>,
+    banking_transaction_error: FilterBankingTransactionResults,
     ping: Option<i32>,
 }
 
@@ -52,6 +53,9 @@ impl Filter {
             blocks_meta: FilterBlocksMeta::new(&config.blocks_meta, &limit.blocks_meta)?,
             commitment: Self::decode_commitment(config.commitment)?,
             accounts_data_slice: FilterAccountsDataSlice::create(&config.accounts_data_slice)?,
+            banking_transaction_error: FilterBankingTransactionResults::new(
+                config.subscribe_banking_transaction_results,
+            )?,
             ping: config.ping.as_ref().map(|msg| msg.id),
         })
     }
@@ -102,6 +106,9 @@ impl Filter {
             Message::Entry(message) => self.entry.get_filters(message),
             Message::Block(message) => self.blocks.get_filters(message),
             Message::BlockMeta(message) => self.blocks_meta.get_filters(message),
+            Message::BankingTransactionResult(message) => {
+                self.banking_transaction_error.get_filters(message)
+            }
         }
     }
 
@@ -203,6 +210,31 @@ impl FilterAccounts {
         filter.match_owner(&message.account.owner);
         filter.match_data(&message.account.data);
         vec![(filter.get_filters(), MessageRef::Account(message))]
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+struct FilterBankingTransactionResults {
+    #[allow(dead_code)]
+    subscribe_banking_transactions_results: bool,
+}
+
+impl FilterBankingTransactionResults {
+    const fn new(subscribe_banking_transactions_results: bool) -> anyhow::Result<Self> {
+        Ok(Self {
+            subscribe_banking_transactions_results,
+        })
+    }
+
+    fn get_filters<'a>(
+        &self,
+        message: &'a MessageBankingTransaction,
+    ) -> Vec<(Vec<String>, MessageRef<'a>)> {
+        // disable `self.subscribe_banking_transactions_results` check for now
+        vec![(
+            vec!["All".to_string()],
+            MessageRef::BankingStageTransactionResult(message),
+        )]
     }
 }
 
@@ -860,6 +892,7 @@ mod tests {
             entry: HashMap::new(),
             commitment: None,
             accounts_data_slice: Vec::new(),
+            subscribe_banking_transaction_results: false,
             ping: None,
         };
         let limit = ConfigGrpcFilters::default();
@@ -889,6 +922,7 @@ mod tests {
             entry: HashMap::new(),
             commitment: None,
             accounts_data_slice: Vec::new(),
+            subscribe_banking_transaction_results: false,
             ping: None,
         };
         let mut limit = ConfigGrpcFilters::default();
@@ -923,6 +957,7 @@ mod tests {
             entry: HashMap::new(),
             commitment: None,
             accounts_data_slice: Vec::new(),
+            subscribe_banking_transaction_results: false,
             ping: None,
         };
         let mut limit = ConfigGrpcFilters::default();
@@ -956,6 +991,7 @@ mod tests {
             entry: HashMap::new(),
             commitment: None,
             accounts_data_slice: Vec::new(),
+            subscribe_banking_transaction_results: false,
             ping: None,
         };
         let mut limit = ConfigGrpcFilters::default();
@@ -995,6 +1031,7 @@ mod tests {
             entry: HashMap::new(),
             commitment: None,
             accounts_data_slice: Vec::new(),
+            subscribe_banking_transaction_results: false,
             ping: None,
         };
         let limit = ConfigGrpcFilters::default();
@@ -1038,6 +1075,7 @@ mod tests {
             entry: HashMap::new(),
             commitment: None,
             accounts_data_slice: Vec::new(),
+            subscribe_banking_transaction_results: false,
             ping: None,
         };
         let limit = ConfigGrpcFilters::default();
@@ -1081,6 +1119,7 @@ mod tests {
             entry: HashMap::new(),
             commitment: None,
             accounts_data_slice: Vec::new(),
+            subscribe_banking_transaction_results: false,
             ping: None,
         };
         let limit = ConfigGrpcFilters::default();
@@ -1130,6 +1169,7 @@ mod tests {
             entry: HashMap::new(),
             commitment: None,
             accounts_data_slice: Vec::new(),
+            subscribe_banking_transaction_results: false,
             ping: None,
         };
         let limit = ConfigGrpcFilters::default();
@@ -1181,6 +1221,7 @@ mod tests {
             entry: HashMap::new(),
             commitment: None,
             accounts_data_slice: Vec::new(),
+            subscribe_banking_transaction_results: false,
             ping: None,
         };
         let limit = ConfigGrpcFilters::default();
