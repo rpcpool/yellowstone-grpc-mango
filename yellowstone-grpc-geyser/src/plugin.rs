@@ -1,3 +1,5 @@
+use crate::grpc::BankingStageAccount;
+
 use {
     crate::{
         config::Config,
@@ -9,6 +11,7 @@ use {
         ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult,
         SlotStatus,
     },
+    solana_sdk::transaction::{SanitizedTransaction, TransactionError},
     std::{
         concat, env,
         sync::{
@@ -225,6 +228,35 @@ impl GeyserPlugin for Plugin {
         })
     }
 
+    fn notify_banking_stage_transaction_results(
+        &self,
+        transaction: &SanitizedTransaction,
+        transaction_error: Option<TransactionError>,
+        slot: u64,
+    ) -> PluginResult<()> {
+        if transaction.is_simple_vote_transaction() {
+            return Ok(());
+        }
+
+        self.with_inner(|inner| {
+            let tm = transaction.message();
+            let accounts = tm
+                .account_keys()
+                .iter()
+                .enumerate()
+                .map(|(index, x)| BankingStageAccount {
+                    account: *x,
+                    is_writable: tm.is_writable(index),
+                })
+                .collect();
+            let message = Message::BankingTransactionResult(
+                (*transaction.signature(), transaction_error, slot, accounts).into(),
+            );
+            inner.send_message(message);
+            Ok(())
+        })
+    }
+
     fn account_data_notifications_enabled(&self) -> bool {
         true
     }
@@ -234,6 +266,10 @@ impl GeyserPlugin for Plugin {
     }
 
     fn entry_notifications_enabled(&self) -> bool {
+        true
+    }
+
+    fn banking_transaction_results_notifications_enabled(&self) -> bool {
         true
     }
 }
