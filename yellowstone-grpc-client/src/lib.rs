@@ -190,6 +190,7 @@ impl<F: Interceptor> GeyserGrpcClient<F> {
         blocks_meta: HashMap<String, SubscribeRequestFilterBlocksMeta>,
         commitment: Option<CommitmentLevel>,
         accounts_data_slice: Vec<SubscribeRequestAccountsDataSlice>,
+        subscribe_banking_transaction_results: bool,
         ping: Option<SubscribeRequestPing>,
     ) -> GeyserGrpcClientResult<impl Stream<Item = Result<SubscribeUpdate, Status>>> {
         self.subscribe_once2(SubscribeRequest {
@@ -201,6 +202,7 @@ impl<F: Interceptor> GeyserGrpcClient<F> {
             blocks_meta,
             commitment: commitment.map(|value| value as i32),
             accounts_data_slice,
+            subscribe_banking_transaction_results,
             ping,
         })
         .await
